@@ -62,6 +62,11 @@ urlpatterns = [
     path("sales/update/<int:pk>/", views.update_sale, name="update_sale"),
     path("sales/delete/<int:pk>/", views.delete_sale, name="delete_sale"),
 
+    path("returns/sales/", views.get_sale_returns, name="get_sale_returns"),
+    path("returns/sales/create/", views.create_sale_return, name="create_sale_return"),
+    path("returns/purchases/", views.get_purchase_returns, name="get_purchase_returns"),
+    path("returns/purchases/create/", views.create_purchase_return, name="create_purchase_return"),
+
     path('stock-adjustments/', views.adjust_stock, name='get_stock_adjustments'),
     path('damaged-stocks/', views.add_damaged_stock, name='get_damaged_stocks'),
 

@@ -30,6 +30,9 @@ from .purchases import (
 from .stock import (
     add_damaged_stock, adjust_stock, get_activities
 )
+from .returns import (
+    get_sale_returns, create_sale_return, get_purchase_returns, create_purchase_return
+)
 from .dashboard import (
     get_dashboard_data, get_all_transactions, get_payments
 )
@@ -50,6 +53,7 @@ __all__ = [
     'get_products', 'get_product', 'create_product', 'update_product', 'delete_product',
     'get_sales', 'get_sale', 'create_sale', 'update_sale', 'delete_sale',
     'get_purchases', 'get_purchase', 'create_purchase',
+    'get_sale_returns', 'create_sale_return', 'get_purchase_returns', 'create_purchase_return',
     'add_damaged_stock', 'adjust_stock', 'get_activities',
     'get_dashboard_data', 'get_all_transactions', 'get_payments'
 ]

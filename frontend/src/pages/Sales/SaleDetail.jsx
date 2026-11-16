@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import axios from "../../api/axios";
+import ReturnModal from "../../components/common/ReturnModal";
 
 /* ── Per-item qty cell with base/sub unit toggle ── */
 const ItemQtyCell = ({ item }) => {
@@ -61,6 +62,7 @@ const ItemQtyCell = ({ item }) => {
 const SaleDetail = () => {
   const { id } = useParams();
   const [sale, setSale] = useState(null);
+  const [showReturnModal, setShowReturnModal] = useState(false);
 
   useEffect(() => {
     loadSale();
@@ -140,13 +142,23 @@ const SaleDetail = () => {
               </p>
             </div>
           </div>
-          <Link
-            to="/reports/sales-summary"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-white/20 text-white/70 text-[13px] font-semibold hover:bg-white/10 hover:text-white transition-all duration-200 no-underline"
-          >
-            <i className="bi bi-arrow-left" />
-            Back
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowReturnModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[13px] font-semibold transition-all duration-200 border-0 shadow-sm"
+            >
+              <i className="bi bi-arrow-return-left" />
+              Return / Credit Note
+            </button>
+            <Link
+              to="/reports/sales-summary"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-white/20 text-white/70 text-[13px] font-semibold hover:bg-white/10 hover:text-white transition-all duration-200 no-underline"
+            >
+              <i className="bi bi-arrow-left" />
+              Back
+            </Link>
+          </div>
         </div>
 
         {/* Info Grid */}
@@ -332,6 +344,17 @@ const SaleDetail = () => {
           </div>
         </div>
       </div>
+
+      <ReturnModal
+        open={showReturnModal}
+        type="sale"
+        record={sale}
+        onClose={() => setShowReturnModal(false)}
+        onSuccess={() => {
+          alert("Return processed successfully!");
+          loadSale();
+        }}
+      />
     </div>
   );
 };

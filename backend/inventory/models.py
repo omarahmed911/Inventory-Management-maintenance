@@ -467,3 +467,135 @@ class PasswordChangeRequest(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.status}"
+
+
+# RETURNS / CREDIT NOTES (MR-11)
+
+class SaleReturn(models.Model):
+    sale = models.ForeignKey('Sale', related_name='returns', on_delete=models.CASCADE)
+    return_no = models.CharField(max_length=50, unique=True, blank=True)
+    total_refund_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    reason = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"SaleReturn {self.return_no}"
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        if not self.return_no:
+            self.return_no = self.generate_return_no()
+        super().save(*args, **kwargs)
+
+        if is_new and self.total_refund_amount > 0 and self.sale.customer:
+            Payment.objects.create(
+                party=self.sale.customer,
+                payment_type='Debit',
+                amount=self.total_refund_amount,
+                payment_mode='Credit Note',
+                reference_no=self.return_no
+            )
+
+    @staticmethod
+    def generate_return_no():
+        from datetime import datetime
+        today = datetime.now().strftime("%Y%m%d")
+        random_str = get_random_string(length=6, allowed_chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
+        return f"SR{today}-{random_str}"
+
+
+class SaleReturnItem(models.Model):
+    sale_return = models.ForeignKey(SaleReturn, related_name='items', on_delete=models.CASCADE)
+    sale_item = models.ForeignKey('SaleItem', on_delete=models.SET_NULL, null=True, blank=True, related_name='returns')
+    product = models.ForeignKey('Product', on_delete=models.CASCADE)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    refund_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        if self.quantity <= 0:
+            raise ValidationError("Return quantity must be greater than 0")
+
+        if self.sale_item:
+            already_returned = SaleReturnItem.objects.filter(sale_item=self.sale_item)
+            if self.pk:
+                already_returned = already_returned.exclude(pk=self.pk)
+            total_returned = already_returned.aggregate(t=Sum('quantity'))['t'] or Decimal('0.00')
+            max_allowed = self.sale_item.quantity - total_returned
+            if self.quantity > max_allowed:
+                raise ValidationError(f"Cannot return {self.quantity}. Only {max_allowed} remaining from original sale.")
+
+        product = Product.objects.select_for_update().get(pk=self.product.pk)
+        if not self.pk:
+            product.stock_quantity += self.quantity
+            product.save()
+            self.product = product
+
+        super().save(*args, **kwargs)
+
+
+class PurchaseReturn(models.Model):
+    purchase = models.ForeignKey('Purchase', related_name='returns', on_delete=models.CASCADE)
+    return_no = models.CharField(max_length=50, unique=True, blank=True)
+    total_refund_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    reason = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"PurchaseReturn {self.return_no}"
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        is_new = self.pk is None
+        if not self.return_no:
+            self.return_no = self.generate_return_no()
+        super().save(*args, **kwargs)
+
+        if is_new and self.total_refund_amount > 0 and self.purchase.supplier:
+            Payment.objects.create(
+                party=self.purchase.supplier,
+                payment_type='Credit',
+                amount=self.total_refund_amount,
+                payment_mode='Debit Note',
+                reference_no=self.return_no
+            )
+
+    @staticmethod
+    def generate_return_no():
+        from datetime import datetime
+        today = datetime.now().strftime("%Y%m%d")
+        random_str = get_random_string(length=6, allowed_chars='ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789')
+        return f"PR{today}-{random_str}"
+
+
+class PurchaseReturnItem(models.Model):
+    purchase_return = models.ForeignKey(PurchaseReturn, related_name='items', on_delete=models.CASCADE)
+    purchase_item = models.ForeignKey('PurchaseItem', on_delete=models.SET_NULL, null=True, blank=True, related_name='returns')
+    product = models.ForeignKey('Product', on_delete=models.CASCADE)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    refund_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    @transaction.atomic
+    def save(self, *args, **kwargs):
+        if self.quantity <= 0:
+            raise ValidationError("Return quantity must be greater than 0")
+
+        if self.purchase_item:
+            already_returned = PurchaseReturnItem.objects.filter(purchase_item=self.purchase_item)
+            if self.pk:
+                already_returned = already_returned.exclude(pk=self.pk)
+            total_returned = already_returned.aggregate(t=Sum('quantity'))['t'] or Decimal('0.00')
+            max_allowed = self.purchase_item.quantity - total_returned
+            if self.quantity > max_allowed:
+                raise ValidationError(f"Cannot return {self.quantity}. Only {max_allowed} remaining from original purchase.")
+
+        product = Product.objects.select_for_update().get(pk=self.product.pk)
+        if not self.pk:
+            if product.stock_quantity < self.quantity:
+                raise ValidationError(f"Only {product.stock_quantity} available in stock to return")
+            product.stock_quantity -= self.quantity
+            product.save()
+            self.product = product
+
+        super().save(*args, **kwargs)

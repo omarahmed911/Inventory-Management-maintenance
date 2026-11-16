@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { getPurchase } from "../../api/purchaseService";
 import { useParams, Link } from "react-router-dom";
+import ReturnModal from "../../components/common/ReturnModal";
 
 /* ══════════════════════════════════════════
    PURCHASE DETAIL
@@ -8,6 +9,7 @@ import { useParams, Link } from "react-router-dom";
 const PurchaseDetail = () => {
   const { id } = useParams();
   const [purchase, setPurchase] = useState(null);
+  const [showReturnModal, setShowReturnModal] = useState(false);
 
   useEffect(() => {
     loadPurchase();
@@ -89,13 +91,23 @@ const PurchaseDetail = () => {
               </p>
             </div>
           </div>
-          <Link
-            to="/purchases"
-            className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-white/20 text-white/70 text-[13px] font-semibold hover:bg-white/10 hover:text-white transition-all duration-200 no-underline"
-          >
-            <i className="bi bi-arrow-left" />
-            Back
-          </Link>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowReturnModal(true)}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-[13px] font-semibold transition-all duration-200 border-0 shadow-sm"
+            >
+              <i className="bi bi-arrow-return-left" />
+              Return / Debit Note
+            </button>
+            <Link
+              to="/purchases"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-white/20 text-white/70 text-[13px] font-semibold hover:bg-white/10 hover:text-white transition-all duration-200 no-underline"
+            >
+              <i className="bi bi-arrow-left" />
+              Back
+            </Link>
+          </div>
         </div>
 
         {/* Info Grid */}
@@ -342,6 +354,17 @@ const PurchaseDetail = () => {
           </div>
         </div>
       </div>
+
+      <ReturnModal
+        open={showReturnModal}
+        type="purchase"
+        record={purchase}
+        onClose={() => setShowReturnModal(false)}
+        onSuccess={() => {
+          alert("Purchase return processed successfully!");
+          loadPurchase();
+        }}
+      />
     </div>
   );
 };

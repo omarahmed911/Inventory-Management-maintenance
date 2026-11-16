@@ -456,4 +456,103 @@ class ActivitySerializer(serializers.ModelSerializer):
 
     def get_user(self, obj):
         return obj.user.username if obj.user else "System"
+
+
+# RETURNS / CREDIT NOTES (MR-11)
+
+class SaleReturnItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    unit_short_name = serializers.CharField(source='product.unit.short_name', read_only=True, default='')
+
+    class Meta:
+        model = SaleReturnItem
+        fields = ['id', 'sale_item', 'product', 'product_name', 'unit_short_name', 'quantity', 'refund_price']
+
+
+class SaleReturnSerializer(serializers.ModelSerializer):
+    sale_invoice_no = serializers.CharField(source='sale.invoice_no', read_only=True)
+    customer_name = serializers.CharField(source='sale.customer.name', read_only=True, default='')
+    items = SaleReturnItemSerializer(many=True)
+
+    class Meta:
+        model = SaleReturn
+        fields = ['id', 'sale', 'sale_invoice_no', 'customer_name', 'return_no', 'total_refund_amount', 'reason', 'created_at', 'items']
+        read_only_fields = ['return_no', 'created_at']
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items', [])
+        if not items_data:
+            raise serializers.ValidationError({"items": "At least one item must be returned."})
+
+        computed_total = Decimal('0.00')
+        processed_items = []
+        for item in items_data:
+            qty = Decimal(str(item['quantity']))
+            price = Decimal(str(item.get('refund_price', 0)))
+            if price == 0 and item.get('sale_item'):
+                price = item['sale_item'].per_item_price
+                item['refund_price'] = price
+            computed_total += (qty * price)
+            processed_items.append(item)
+
+        if not validated_data.get('total_refund_amount') or validated_data['total_refund_amount'] == 0:
+            validated_data['total_refund_amount'] = computed_total
+
+        with transaction.atomic():
+            sale_return = SaleReturn.objects.create(**validated_data)
+            for item_data in processed_items:
+                try:
+                    SaleReturnItem.objects.create(sale_return=sale_return, **item_data)
+                except DjangoValidationError as e:
+                    raise serializers.ValidationError({"items": e.messages if hasattr(e, 'messages') else str(e)})
+            return sale_return
+
+
+class PurchaseReturnItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    unit_short_name = serializers.CharField(source='product.unit.short_name', read_only=True, default='')
+
+    class Meta:
+        model = PurchaseReturnItem
+        fields = ['id', 'purchase_item', 'product', 'product_name', 'unit_short_name', 'quantity', 'refund_price']
+
+
+class PurchaseReturnSerializer(serializers.ModelSerializer):
+    purchase_no = serializers.CharField(source='purchase.purchase_no', read_only=True)
+    supplier_name = serializers.CharField(source='purchase.supplier.name', read_only=True, default='')
+    items = PurchaseReturnItemSerializer(many=True)
+
+    class Meta:
+        model = PurchaseReturn
+        fields = ['id', 'purchase', 'purchase_no', 'supplier_name', 'return_no', 'total_refund_amount', 'reason', 'created_at', 'items']
+        read_only_fields = ['return_no', 'created_at']
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items', [])
+        if not items_data:
+            raise serializers.ValidationError({"items": "At least one item must be returned."})
+
+        computed_total = Decimal('0.00')
+        processed_items = []
+        for item in items_data:
+            qty = Decimal(str(item['quantity']))
+            price = Decimal(str(item.get('refund_price', 0)))
+            if price == 0 and item.get('purchase_item'):
+                price = item['purchase_item'].price
+                item['refund_price'] = price
+            computed_total += (qty * price)
+            processed_items.append(item)
+
+        if not validated_data.get('total_refund_amount') or validated_data['total_refund_amount'] == 0:
+            validated_data['total_refund_amount'] = computed_total
+
+        with transaction.atomic():
+            purchase_return = PurchaseReturn.objects.create(**validated_data)
+            for item_data in processed_items:
+                try:
+                    PurchaseReturnItem.objects.create(purchase_return=purchase_return, **item_data)
+                except DjangoValidationError as e:
+                    raise serializers.ValidationError({"items": e.messages if hasattr(e, 'messages') else str(e)})
+            return purchase_return
+
     
