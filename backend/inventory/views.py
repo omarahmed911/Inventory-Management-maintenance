@@ -835,8 +835,12 @@ def get_payments(request):
 def add_damaged_stock(request):
     serializer = DamagedStockSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
-    serializer.save()
-    return Response(serializer.data)
+    damaged = serializer.save()
+    Activity.objects.create(
+        action=f"Damaged Stock: {damaged.product.product_name} ({damaged.quantity})",
+        user=request.user if request.user.is_authenticated else None
+    )
+    return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
