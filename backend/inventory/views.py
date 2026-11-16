@@ -842,6 +842,7 @@ def adjust_stock(request):
 
 
 @api_view(['GET'])
+@permission_required("payments", "view")
 def get_all_transactions(request):
     transactions = []
     sales = Sale.objects.select_related("customer").all()
