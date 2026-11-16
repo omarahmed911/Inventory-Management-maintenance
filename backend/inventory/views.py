@@ -9,7 +9,7 @@ from django.contrib.auth.hashers import make_password
 from django.shortcuts import get_object_or_404
 from django.middleware.csrf import get_token
 from django.db.models import Sum
-from django.db import models
+from django.db import models, transaction
 
 from .permissions import IsOwner, permission_required, permission_required_any, role_required, role_and_permission_required, has_permission
 from .serializers import *
@@ -60,14 +60,20 @@ def create_role(request):
  
 @api_view(["PUT"])
 @permission_required("users", "update")
+@transaction.atomic
 def update_role_permissions(request, role_id):
     if request.user.userprofile.role != "Owner":
         return Response({"error": "Only Owner can update role permissions"}, status=403)
 
     role = get_object_or_404(Role, pk=role_id)
     permissions_data = request.data.get("permissions", {})
+    if not isinstance(permissions_data, dict):
+        return Response({"error": "Permissions must be an object"}, status=status.HTTP_400_BAD_REQUEST)
+
     RolePermission.objects.filter(role=role).delete()
     for module, actions in permissions_data.items():
+        if not isinstance(actions, dict):
+            actions = {}
         rp = RolePermission.objects.create(
             role=role,
             module=module,
@@ -85,6 +91,8 @@ def update_role_permissions(request, role_id):
     for user in users_with_role:
         Permission.objects.filter(user=user).delete()
         for module, actions in permissions_data.items():
+            if not isinstance(actions, dict):
+                actions = {}
             perm = Permission.objects.create(
                 user=user,
                 module=module,
