@@ -11,12 +11,12 @@ A full-stack **Inventory Management System** built with **Django REST Framework*
 - 🛒 **Product Management** — Categories, units (integer/decimal), stock tracking, product images, sub-unit conversion
 - 🤝 **Party Management** — Customers and Suppliers with contact details
 - 📥 **Purchase Management** — Record purchases with due/paid amount tracking
-- 📤 **Sales Management** — Invoice generation, sale items, per-item pricing
-- 💳 **Payment Tracking** — Payment history with processing overlay
-- 🏭 **Damaged Stock** — Track and manage damaged inventory
+- 📤 **Sales Management** — Invoice generation, sale items, per-item pricing, atomic stock adjustments
+- 💳 **Payment Tracking** — Payment history with transaction summaries
+- 🏭 **Damaged Stock** — Track damaged inventory with full audit logging
 - 📋 **Activity Log** — Full audit trail of all user actions
-- 📈 **Reports** — Export to Excel (ExcelJS + file-saver)
-- 🔑 **User Management** — Create users, assign roles, manage permissions per module
+- 📈 **Reports** — Comprehensive reports with Excel export via ExcelJS + file-saver
+- 🔑 **User Management** — Object-level authorization, manage user roles, and module permissions
 - 🔄 **Password Change Requests** — Workflow for password reset requests
 
 ---
@@ -28,8 +28,9 @@ A full-stack **Inventory Management System** built with **Django REST Framework*
 |---|---|
 | Python / Django | Core framework |
 | Django REST Framework | REST API |
-| SimpleJWT | JWT Authentication |
-| SQLite (default) | Database |
+| Session Authentication + CSRF | Secure authentication |
+| SQLite (default) / Configurable DB | Database via Django ORM |
+| python-decouple | Environment configuration |
 
 ### Frontend
 | Technology | Purpose |
@@ -37,35 +38,41 @@ A full-stack **Inventory Management System** built with **Django REST Framework*
 | React 19 | UI Library |
 | Vite | Build tool |
 | React Router v7 | Routing |
-| Axios | HTTP client |
+| Axios | HTTP client (with credentials & CSRF) |
 | Bootstrap 5 + React-Bootstrap | UI components |
 | Tailwind CSS | Utility styling |
 | Recharts | Charts & graphs |
-| ExcelJS + file-saver | Excel export |
+| ExcelJS + file-saver | Secure Excel export (no vulnerable dependencies) |
 
 ---
 
 ## 📁 Project Structure
 
 ```
-inventory_system/
+Inventory-Management/
 ├── backend/
 │   ├── inventory/           # Main Django app
-│   │   ├── models.py        # DB models (Product, Sale, Purchase, Party...)
-│   │   ├── views.py         # API views
+│   │   ├── models.py        # Database models (Product, Sale, Purchase, Party...)
+│   │   ├── views.py         # API views (split into domain views)
 │   │   ├── serializers.py   # DRF serializers
 │   │   ├── urls.py          # API routes
-│   │   ├── permissions.py   # Custom permission classes
-│   │   └── views_reports.py # Report generation
-│   └── inventory_system/    # Django project settings
-│       └── settings.py
+│   │   ├── permissions.py   # Custom role/permission decorators
+│   │   ├── views_reports.py # Report generation endpoints
+│   │   └── tests/           # Automated test suite
+│   ├── inventory_system/    # Django project configuration
+│   │   ├── settings.py      # Production-ready environment settings
+│   │   └── urls.py          # Root URL routing
+│   ├── requirements.txt     # Python backend dependencies
+│   └── .env.example         # Environment template
 └── frontend/
+    ├── package.json         # Frontend dependencies
     └── src/
-        ├── api/             # Axios service files
+        ├── api/             # Axios API service clients
         ├── components/      # Reusable UI components
-        ├── context/         # Auth & Toast context
-        ├── layouts/         # Sidebar, Topbar, Layout
-        └── pages/           # Feature pages (Dashboard, Products, Sales...)
+        ├── context/         # Auth & Toast contexts
+        ├── layouts/         # Sidebar, Topbar, MainLayout
+        ├── pages/           # Application views (Dashboard, Products, Sales...)
+        └── routes/          # Protected and public routes
 ```
 
 ---
@@ -75,70 +82,98 @@ inventory_system/
 ### Prerequisites
 - Python 3.10+
 - Node.js 18+
-- pip
+- npm
 
-### Backend Setup
+### 1. Backend Setup
 
 ```bash
-cd inventory_system/backend
+# Navigate to backend directory
+cd backend
 
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate       # Windows: venv\Scripts\activate
+
+# Activate virtual environment
+# Windows:
+venv\Scripts\activate
+# Linux/macOS:
+# source venv/bin/activate
 
 # Install dependencies
-pip install django djangorestframework djangorestframework-simplejwt Pillow django-cors-headers
+pip install -r requirements.txt
+
+# Configure environment variables
+cp .env.example .env
+# Edit .env to set your SECRET_KEY and ALLOWED_HOSTS if needed
 
 # Run migrations
 python manage.py migrate
 
-# Create superuser
+# Create initial admin/owner user
 python manage.py createsuperuser
 
-# Start server
+# Start development server
 python manage.py runserver
 ```
 
-### Frontend Setup
+The backend API will run at `http://localhost:8000/api/`.
+
+### 2. Frontend Setup
 
 ```bash
-cd inventory_system/frontend
+# Navigate to frontend directory
+cd frontend
 
 # Install dependencies
 npm install
 
-# Start dev server
+# Build for production
+npm run build
+
+# Start development server
 npm run dev
 ```
 
-The frontend runs at `http://localhost:5173` and the backend API at `http://localhost:8000`.
+The frontend will run at `http://localhost:5173`.
 
 ---
 
-## 🔑 Default Roles
+## 🧪 Running Tests
+
+To run the full backend automated test suite:
+
+```bash
+cd backend
+python manage.py test inventory.tests
+```
+
+To run with existing database preserving speed:
+
+```bash
+python manage.py test inventory.tests --keepdb
+```
+
+---
+
+## 🔑 Default Roles & Access Control
 
 | Role | Access Level |
 |---|---|
-| **Owner** | Full access to all modules |
-| **Manager** | Manage inventory, sales, purchases |
-| **Supervisor** | View and create records |
-| **Employee** | Limited view access |
+| **Owner** | Full administrative access to all modules, roles, and settings |
+| **Manager** | Manage inventory, sales, purchases, parties, units, categories |
+| **Supervisor** | View and create products, sales, damaged stock, adjustments |
+| **Employee** | Sales creation and current stock visibility |
 
 ---
 
 ## 📸 Screenshots
 
-> *(Add your screenshots here)*
+> Note: To capture live screenshots, start both backend and frontend servers and navigate to the application views:
+> - Dashboard: `http://localhost:5173/dashboard`
+> - Products: `http://localhost:5173/products`
+> - Sales: `http://localhost:5173/sales`
 
-| Dashboard | Products | Sales |
-|---|---|---|
-| ![Dashboard](screenshots/dashboard.png) | ![Products](screenshots/products.png) | ![Sales](screenshots/sales.png) |
-
----
-
-## 🤝 Contributing
-
-Pull requests are welcome! For major changes, please open an issue first to discuss what you'd like to change.
+*(Place screenshots in a `screenshots/` directory)*
 
 ---
 
