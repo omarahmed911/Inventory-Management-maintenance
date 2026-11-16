@@ -208,7 +208,7 @@ class SaleItem(models.Model):
         else:
             difference = self.quantity
 
-        product = Product.objects.get(pk=self.product.pk)
+        product = Product.objects.select_for_update().get(pk=self.product.pk)
         if difference > 0 and product.stock_quantity < difference:
             raise ValidationError(f"Only {product.stock_quantity} items available in stock")
         
@@ -220,7 +220,7 @@ class SaleItem(models.Model):
     @transaction.atomic
     def delete(self, *args, **kwargs):
         if self.product:
-            product = Product.objects.get(pk=self.product.pk)
+            product = Product.objects.select_for_update().get(pk=self.product.pk)
             product.stock_quantity += self.quantity
             product.save()
         return super().delete(*args, **kwargs)
@@ -343,10 +343,17 @@ class DamagedStock(models.Model):
     reason = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
         if not self.pk:
-            self.product.stock_quantity -= self.quantity
-            self.product.save()
+            if self.quantity <= 0:
+                raise ValidationError("Quantity must be greater than 0")
+            product = Product.objects.select_for_update().get(pk=self.product.pk)
+            if product.stock_quantity < self.quantity:
+                raise ValidationError(f"Only {product.stock_quantity} items available in stock")
+            product.stock_quantity -= self.quantity
+            product.save()
+            self.product = product
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -363,11 +370,18 @@ class StockAdjustment(models.Model):
     adjusted_at = models.DateTimeField(auto_now_add=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
         if not self.pk:
+            if self.new_quantity < 0:
+                raise ValidationError("New quantity cannot be negative")
+            product = Product.objects.select_for_update().get(pk=self.product.pk)
             difference = self.new_quantity - self.old_quantity
-            self.product.stock_quantity += difference
-            self.product.save()
+            if product.stock_quantity + difference < 0:
+                raise ValidationError("Stock cannot become negative")
+            product.stock_quantity += difference
+            product.save()
+            self.product = product
         super().save(*args, **kwargs)
 
     def __str__(self):
