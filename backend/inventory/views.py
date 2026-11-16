@@ -1,6 +1,7 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from rest_framework import status
 
 from django.contrib.auth import authenticate, login, logout, get_user_model
@@ -17,6 +18,22 @@ from .models import *
 
 
 User = get_user_model()
+
+
+class OptionalPagination(PageNumberPagination):
+    page_size = 20
+    page_size_query_param = 'page_size'
+    max_page_size = 100
+
+
+def paginate_if_requested(queryset, request, serializer_class, context=None):
+    if 'page' in request.GET:
+        paginator = OptionalPagination()
+        page = paginator.paginate_queryset(queryset, request)
+        serializer = serializer_class(page, many=True, context=context or {'request': request})
+        return paginator.get_paginated_response(serializer.data)
+    serializer = serializer_class(queryset, many=True, context=context or {'request': request})
+    return Response(serializer.data)
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
@@ -430,10 +447,18 @@ def get_dashboard_data(request):
 
     # CUSTOMER OUTSTANDING
     customers = Party.objects.filter(party_type="Customer")
+    sales_by_customer = {
+        row['customer']: row['total']
+        for row in Sale.objects.values('customer').annotate(total=DSum('total_amount'))
+    }
+    payments_by_customer = {
+        row['party']: row['total']
+        for row in Payment.objects.filter(payment_type="Credit").values('party').annotate(total=DSum('amount'))
+    }
     outstanding_list = []
     for c in customers:
-        total_bill = Sale.objects.filter(customer=c).aggregate(t=DSum('total_amount'))['t'] or 0
-        total_paid = Payment.objects.filter(party=c, payment_type="Credit").aggregate(t=DSum('amount'))['t'] or 0
+        total_bill = sales_by_customer.get(c.id) or 0
+        total_paid = payments_by_customer.get(c.id) or 0
         outstanding_list.append({
             "customer_name": c.name,
             "total_bill":    total_bill,
@@ -659,19 +684,23 @@ def delete_party(request, pk):
 @api_view(['GET'])
 @permission_required_any([("products", "view"), ("sales", "view"), ("sales", "create"), ("purchases", "view"), ("purchases", "create")])
 def get_products(request):
+    from django.db.models import Subquery, OuterRef
+    from django.db.models.functions import Coalesce
+
     supplier_id = request.GET.get("supplier")
-    products = Product.objects.all()
+    purchase_subquery = PurchaseItem.objects.filter(product=OuterRef('pk')).values('product').annotate(t=Sum('quantity')).values('t')
+    sale_subquery = SaleItem.objects.filter(product=OuterRef('pk')).values('product').annotate(t=Sum('quantity')).values('t')
+
+    products = Product.objects.select_related('category', 'unit', 'sub_unit', 'supplier').annotate(
+        total_purchased_val=Coalesce(Subquery(purchase_subquery), Decimal('0.00')),
+        total_sold_val=Coalesce(Subquery(sale_subquery), Decimal('0.00'))
+    )
 
     if supplier_id:
         products = products.filter(supplier_id=supplier_id)
 
     products = products.order_by('-created_at')
-    serializer = ProductSerializer(
-        products,
-        many=True,
-        context={'request': request}
-    )
-    return Response(serializer.data)
+    return paginate_if_requested(products, request, ProductSerializer, context={'request': request})
 
 
 @api_view(['GET'])
@@ -742,9 +771,8 @@ def delete_product(request, pk):
 @api_view(['GET'])
 @permission_required("sales", "view")
 def get_sales(request):
-    sales = Sale.objects.all().order_by('-created_at')
-    serializer = SaleSerializer(sales, many=True)
-    return Response(serializer.data)
+    sales = Sale.objects.select_related('customer', 'worker').prefetch_related('items__product__unit', 'items__product__sub_unit').order_by('-created_at')
+    return paginate_if_requested(sales, request, SaleSerializer)
 
 
 @api_view(['GET'])
@@ -792,9 +820,8 @@ def delete_sale(request, pk):
 @api_view(['GET'])
 @permission_required("purchases", "view")
 def get_purchases(request):
-    purchases = Purchase.objects.all().order_by('-created_at')
-    serializer = PurchaseSerializer(purchases, many=True)
-    return Response(serializer.data)
+    purchases = Purchase.objects.select_related('supplier').prefetch_related('items__product__unit', 'items__product__sub_unit').order_by('-created_at')
+    return paginate_if_requested(purchases, request, PurchaseSerializer)
 
 
 @api_view(['GET'])
@@ -822,7 +849,7 @@ def create_purchase(request):
 @api_view(['GET'])
 @permission_required("payments", "view")
 def get_payments(request):
-    payments = Payment.objects.all().order_by('-created_at')
+    payments = Payment.objects.select_related('party').order_by('-created_at')
     serializer = PaymentSerializer(payments, many=True)
     total_credit = payments.filter(payment_type='Credit').aggregate(total=Sum('amount'))['total'] or 0
     total_debit = payments.filter(payment_type='Debit').aggregate(total=Sum('amount'))['total'] or 0
@@ -857,31 +884,34 @@ def adjust_stock(request):
 @permission_required("payments", "view")
 def get_all_transactions(request):
     transactions = []
-    sales = Sale.objects.select_related("customer").all()
-    for sale in sales:
+    sales_qs = Sale.objects.values(
+        'id', 'customer__name', 'total_amount', 'payment_mode', 'invoice_no', 'created_at'
+    )
+    for s in sales_qs:
         transactions.append({
-            "id": f"S-{sale.id}",
-            "party_name": sale.customer.name if sale.customer else "Walk-in",
+            "id": f"S-{s['id']}",
+            "party_name": s["customer__name"] or "Walk-in",
             "type": "Credit",
-            "amount": sale.total_amount,
-            "mode": sale.payment_mode or "Cash",
-            "reference": sale.invoice_no,
-            "created_at": sale.created_at,
+            "amount": s["total_amount"],
+            "mode": s["payment_mode"] or "Cash",
+            "reference": s["invoice_no"],
+            "created_at": s["created_at"],
         })
 
-    purchases = Purchase.objects.select_related("supplier").all()
-    for purchase in purchases:
+    purchases_qs = Purchase.objects.values(
+        'id', 'supplier__name', 'total_amount', 'payment_type', 'purchase_no', 'created_at'
+    )
+    for p in purchases_qs:
         transactions.append({
-            "id": f"P-{purchase.id}",
-            "party_name": purchase.supplier.name,
+            "id": f"P-{p['id']}",
+            "party_name": p["supplier__name"] or "",
             "type": "Debit",
-            "amount": purchase.total_amount,
-            "mode": purchase.payment_type or "Cash",
-            "reference": purchase.purchase_no,
-            "created_at": purchase.created_at,
+            "amount": p["total_amount"],
+            "mode": p["payment_type"] or "Cash",
+            "reference": p["purchase_no"],
+            "created_at": p["created_at"],
         })
-    transactions = sorted(
-        transactions,
+    transactions.sort(
         key=lambda x: x["created_at"],
         reverse=True
     )

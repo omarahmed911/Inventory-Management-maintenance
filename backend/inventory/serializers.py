@@ -275,9 +275,13 @@ class ProductSerializer(serializers.ModelSerializer):
         return data
 
     def get_total_purchased(self, obj):
+        if hasattr(obj, 'total_purchased_val'):
+            return obj.total_purchased_val or 0
         return obj.purchaseitem_set.aggregate(total=Sum('quantity'))['total'] or 0
 
     def get_total_sold(self, obj):
+        if hasattr(obj, 'total_sold_val'):
+            return obj.total_sold_val or 0
         return obj.saleitem_set.aggregate(total=Sum('quantity'))['total'] or 0
 
 
