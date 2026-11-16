@@ -11,7 +11,7 @@ from django.middleware.csrf import get_token
 from django.db.models import Sum
 from django.db import models
 
-from .permissions import IsOwner, permission_required, permission_required_any, role_required, role_and_permission_required
+from .permissions import IsOwner, permission_required, permission_required_any, role_required, role_and_permission_required, has_permission
 from .serializers import *
 from .models import *
 
@@ -217,7 +217,17 @@ def update_user(request, pk):
     try:
         user = User.objects.get(pk=pk)
     except User.DoesNotExist:
-        return Response({"error": "User not found"}, status=404)
+        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    is_owner = hasattr(request.user, "userprofile") and request.user.userprofile.role == "Owner"
+    is_admin = is_owner or has_permission(request.user, "users", "update")
+    is_self = request.user.id == user.id
+
+    if not (is_self or is_admin):
+        return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+
+    if "role" in request.data and not is_admin:
+        return Response({"error": "Permission denied to change role"}, status=status.HTTP_403_FORBIDDEN)
 
     password_changed = False
     user.first_name = request.data.get("first_name", user.first_name)
@@ -247,7 +257,8 @@ def update_user(request, pk):
     user.save()
     profile = user.userprofile
     profile.phone = request.data.get("phone", profile.phone)
-    profile.role = request.data.get("role", profile.role)
+    if is_admin and "role" in request.data:
+        profile.role = request.data.get("role", profile.role)
 
     if request.FILES.get("profile_image"):
         profile.profile_image = request.FILES.get("profile_image")
@@ -266,7 +277,12 @@ def verify_old_password(request, pk):
     try:
         user = User.objects.get(pk=pk)
     except User.DoesNotExist:
-        return Response({"error": "User not found"}, status=404)
+        return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    is_owner = hasattr(request.user, "userprofile") and request.user.userprofile.role == "Owner"
+    is_admin = is_owner or has_permission(request.user, "users", "update")
+    if request.user.id != user.id and not is_admin:
+        return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
     old_password = request.data.get("old_password")
 
