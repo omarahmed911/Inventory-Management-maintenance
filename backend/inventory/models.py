@@ -154,6 +154,15 @@ class Sale(models.Model):
                 payment_mode=self.payment_mode or 'Cash'
             )
 
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        for item in self.items.select_related('product'):
+            if item.product:
+                product = Product.objects.get(pk=item.product.pk)
+                product.stock_quantity += item.quantity
+                product.save()
+        return super().delete(*args, **kwargs)
+
     @staticmethod
     def generate_invoice_no():
         """
@@ -172,8 +181,10 @@ class SaleItem(models.Model):
     per_item_price = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     def save(self, *args, **kwargs):
+        if not self.product:
+            raise ValidationError("Product is required for a sale item")
 
-        unit_type = self.product.unit.unit_type
+        unit_type = self.product.unit.unit_type if self.product.unit else "Integer"
         has_sub_unit = self.product.sub_unit is not None
 
         if not has_sub_unit:
@@ -197,12 +208,22 @@ class SaleItem(models.Model):
         else:
             difference = self.quantity
 
-        if difference > 0 and self.product.stock_quantity < difference:
-            raise ValidationError(f"Only {self.product.stock_quantity} items available in stock")
+        product = Product.objects.get(pk=self.product.pk)
+        if difference > 0 and product.stock_quantity < difference:
+            raise ValidationError(f"Only {product.stock_quantity} items available in stock")
         
-        self.product.stock_quantity -= difference
-        self.product.save()
+        product.stock_quantity -= difference
+        product.save()
+        self.product = product
         super().save(*args, **kwargs)
+
+    @transaction.atomic
+    def delete(self, *args, **kwargs):
+        if self.product:
+            product = Product.objects.get(pk=self.product.pk)
+            product.stock_quantity += self.quantity
+            product.save()
+        return super().delete(*args, **kwargs)
 
     @property
     def total_price(self):

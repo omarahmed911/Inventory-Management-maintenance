@@ -2,6 +2,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import User
 from rest_framework import serializers
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from .models import *
 from django.db.models import Sum, DecimalField
@@ -337,6 +338,7 @@ class SaleSerializer(serializers.ModelSerializer):
             )
         return sale
     
+    @transaction.atomic
     def update(self, instance, validated_data):
         items_data = validated_data.pop('items', [])
         instance.customer = validated_data.get('customer', instance.customer)
@@ -345,9 +347,20 @@ class SaleSerializer(serializers.ModelSerializer):
         instance.total_amount = validated_data.get('total_amount', instance.total_amount)
         instance.save()
 
+        # Restore stock for old items before replacing
+        for old_item in instance.items.select_related('product'):
+            if old_item.product:
+                product = Product.objects.get(pk=old_item.product.pk)
+                product.stock_quantity += old_item.quantity
+                product.save()
+
         instance.items.all().delete()
-        for item_data in items_data:
-            SaleItem.objects.create(sale=instance, **item_data)
+        try:
+            for item_data in items_data:
+                SaleItem.objects.create(sale=instance, **item_data)
+        except (DjangoValidationError, ValueError) as e:
+            msg = e.messages if hasattr(e, 'messages') else str(e)
+            raise serializers.ValidationError({"items": msg})
         return instance
 
 
