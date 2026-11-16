@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { getSales, deleteSale } from "../../api/saleService";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import ConfirmModal from "../../components/common/ConfirmModal";
 import { useToast } from "../../context/ToastContext";
@@ -165,7 +165,7 @@ const SaleList = () => {
   };
 
   /* ── Excel ── */
-  const downloadExcel = () => {
+  const downloadExcel = async () => {
     if (!filteredSales.length) return;
     const data = filteredSales.map((s) => ({
       Invoice_No: s.invoice_no,
@@ -175,15 +175,20 @@ const SaleList = () => {
       Worker: s.worker_name,
       Payment_Mode: s.payment_mode || "Pending",
     }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(data),
-      "Sales Report",
-    );
-    const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sales Report");
+    ws.columns = Object.keys(data[0]).map((key) => ({
+      header: key,
+      key: key,
+      width: 18,
+    }));
+    data.forEach((row) => ws.addRow(row));
+    ws.getRow(1).font = { bold: true };
+    const buf = await wb.xlsx.writeBuffer();
     saveAs(
-      new Blob([buf], { type: "application/octet-stream" }),
+      new Blob([buf], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }),
       `Sales_Report_${startDate}_to_${endDate}.xlsx`,
     );
   };

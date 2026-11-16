@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useMemo, useCallback } from "react";
 import axios from "../../api/axios";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 
 /* ══════════════════════════════════════════
@@ -130,7 +130,7 @@ const PaymentList = () => {
     setCurrentPage(1);
   };
 
-  const downloadExcel = () => {
+  const downloadExcel = async () => {
     if (!filteredTransactions.length) return;
     const data = filteredTransactions.map((t) => ({
       Party: t.party_name,
@@ -140,15 +140,19 @@ const PaymentList = () => {
       Reference: t.reference,
       Date: new Date(t.created_at).toLocaleDateString(),
     }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(data),
-      "Transactions",
-    );
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Transactions");
+    ws.columns = Object.keys(data[0]).map((key) => ({
+      header: key,
+      key: key,
+      width: 18,
+    }));
+    data.forEach((row) => ws.addRow(row));
+    ws.getRow(1).font = { bold: true };
+    const buf = await wb.xlsx.writeBuffer();
     saveAs(
-      new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })], {
-        type: "application/octet-stream",
+      new Blob([buf], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       }),
       `Payment_Report_${startDate}_to_${endDate}.xlsx`,
     );

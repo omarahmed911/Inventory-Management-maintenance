@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { getPurchases } from "../../api/purchaseService";
 import { Link } from "react-router-dom";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import { usePermission } from "../../hooks/usePermission";
 
@@ -116,7 +116,7 @@ const PurchaseList = () => {
     setCurrentPage(1);
   };
 
-  const downloadExcel = () => {
+  const downloadExcel = async () => {
     if (!filteredPurchases.length) return;
     const data = filteredPurchases.map((p) => ({
       Purchase_No: p.purchase_no,
@@ -127,15 +127,19 @@ const PurchaseList = () => {
       Due: Number(p.due_amount).toFixed(2),
       Status: p.due_amount === 0 ? "Paid" : "Pending",
     }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(data),
-      "Purchase Report",
-    );
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Purchase Report");
+    ws.columns = Object.keys(data[0]).map((key) => ({
+      header: key,
+      key: key,
+      width: 18,
+    }));
+    data.forEach((row) => ws.addRow(row));
+    ws.getRow(1).font = { bold: true };
+    const buf = await wb.xlsx.writeBuffer();
     saveAs(
-      new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })], {
-        type: "application/octet-stream",
+      new Blob([buf], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       }),
       `Purchase_Report_${startDate}_to_${endDate}.xlsx`,
     );

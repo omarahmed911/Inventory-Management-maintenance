@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from "react";
 import axios from "../../api/axios";
 import ReportLayout from "./ReportLayout";
 import { Link } from "react-router-dom";
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import { saveAs } from "file-saver";
 import {
   BarChart,
@@ -187,7 +187,7 @@ function SalesSummaryReport() {
     if (p >= 1 && p <= totalPages) setCurrentPage(p);
   };
 
-  const downloadExcel = () => {
+  const downloadExcel = async () => {
     if (!invoiceData.length) return;
     const d = invoiceData.map((r) => ({
       Invoice_No: r.invoice_no,
@@ -197,15 +197,19 @@ function SalesSummaryReport() {
       Worker: r.worker_name,
       Payment_Mode: r.payment_mode,
     }));
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(d),
-      "Sales Report",
-    );
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sales Report");
+    ws.columns = Object.keys(d[0]).map((key) => ({
+      header: key,
+      key: key,
+      width: 18,
+    }));
+    d.forEach((row) => ws.addRow(row));
+    ws.getRow(1).font = { bold: true };
+    const buf = await wb.xlsx.writeBuffer();
     saveAs(
-      new Blob([XLSX.write(wb, { bookType: "xlsx", type: "array" })], {
-        type: "application/octet-stream",
+      new Blob([buf], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       }),
       `Sales_Report_${start}_to_${end}.xlsx`,
     );
